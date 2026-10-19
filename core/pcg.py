@@ -39,19 +39,23 @@ def norm(text: object) -> str:
 
 BILAN_CATS: dict[str, tuple[str, list[str]]] = {
     # --- Actif -------------------------------------------------------------
-    "imm_en_cours": ("A", ["immobilisation en cours", "avance et acompte"]),
+    "imm_en_cours": ("A", ["immobilisation en cours", "avance et acompte",
+                           "immobilisation en non valeur",
+                           "frais preliminaire", "charge a repartir"]),
     "tresorerie_active": (
         "A",
         [
             "tresorerie actif", "tresorerie", "valeur mobilier", "placement",
-            "banque", "caisse", "cheque", "vmp", "epargne", "livret",
+            "titre et valeur", "banque", "caisse", "cheque", "vmp", "epargne",
+            "livret",
         ],
     ),
     "imm_fin": (
         "A",
         [
             "immobilisation financiere", "creance rattach", "participation",
-            "cautionnement", "pret",
+            "cautionnement", "pret", "titre de participation",
+            "titre immobilise",
         ],
     ),
     "imm_incorp": (
@@ -77,11 +81,15 @@ BILAN_CATS: dict[str, tuple[str, list[str]]] = {
          "tva", "taxe", "redevance"],
     ),
     "personnel_actif": ("A", ["personnel", "salaire", "remuneration"]),
-    "autres_creances": ("A", ["autre creance", "creance", "divers"]),
+    "autres_creances": (
+        "A", ["autre creance", "creance", "divers", "autre debiteur",
+              "debiteur", "fourni debiteur", "compte de regularisation",
+              "compte de negociation", "ecart de conversion"],
+    ),
     "stocks": (
         "A",
-        ["stock", "marchandise", "matiere premiere", "produit fini",
-         "denree", "approvisionnement", "travaux en cours"],
+        ["stock", "marchandise", "matiere premiere", "matiere et fourniture",
+         "produit fini", "denree", "approvisionnement", "travaux en cours"],
     ),
     # --- Passif ------------------------------------------------------------
     "capitaux_propres_declare": ("P", ["capitau propre", "fond propre"]),
@@ -99,13 +107,14 @@ BILAN_CATS: dict[str, tuple[str, list[str]]] = {
     "dettes_fin_ct": (
         "P",
         ["interet couru", "emprunt a court terme", "emprunt court terme",
-         "credit a court terme"],
+         "credit a court terme", "credit d escompte",
+         "credit de tresorerie"],
     ),
     "dettes_fin_lt": (
         "P",
         ["emprunt", "dettes rattach", "rachat d annuite", "obligation",
          "credit bail", "etablissement de credit", "pret",
-         "credit bancaire", "dette bancaire"],
+         "credit bancaire", "dette bancaire", "dette de financement"],
     ),
     "provisions_lt": (
         "P",
@@ -120,14 +129,27 @@ BILAN_CATS: dict[str, tuple[str, list[str]]] = {
         "P",
         ["dettes fiscale", "dettes sociale", "tva a decaisser",
          "impot a payer", "dettes etat", "etat impot", "impot et taxe",
-         "dette etat"],
+         "dette etat", "organisme sociaux"],
     ),
-    "autres_dettes_expl": ("P", ["autre dette", "dette", "autre passif"]),
+    "autres_dettes_expl": (
+        "P",
+        ["autre dette", "dette", "autre passif", "creancier",
+         "compte de regularisation", "compte de negociation",
+         "depot de clientele", "client crediteur", "ecart de conversion"],
+    ),
     "tresorerie_passive": (
         "P",
         ["tresorerie passif", "tresorerie", "decouvert", "soldes debiteur",
-         "compte de banque debiteur"],
+         "compte de banque debiteur", "solde crediteur"],
     ),
+}
+
+# Libellés dont le rattachement dépend entièrement du côté du bilan : « Etat »
+# est une créance à l'actif, une dette au passif (et non deux postes distincts).
+_BILAN_EXACT: dict[str, tuple[str, str]] = {
+    "etat": ("etat_actif", "dettes_etat"),
+    "etat et collectivite publique": ("etat_actif", "dettes_etat"),
+    "etat impot et taxe": ("etat_actif", "dettes_etat"),
 }
 
 # Ordre de priorité : les libellés spécifiques doivent être testés avant les
@@ -152,6 +174,7 @@ CPC_CATS: dict[str, list[str]] = {
     "ca": [
         "vente de marchandise", "prestation de service", "production vendue",
         "chiffre d affaire", "vente de produit",
+        "commission des transaction", "commission sur activite",
     ],
     "production_stockee": ["production stockee", "destockage", "destocke"],
     "autres_produits_expl": (
@@ -159,31 +182,42 @@ CPC_CATS: dict[str, list[str]] = {
          "reprise sur provision et depreciation", "produit d exploitation"]
     ),
     "achats_marchandises": ["achat de marchandise", "achat marchandise"],
-    "achats_matieres": ["achat de matiere", "matiere premiere"],
+    "achats_matieres": ["achat de matiere", "matiere premiere",
+                        "achat consomme",
+                        "achat de matiere et fourniture"],
     "var_stocks": ["variation de stock", "variation des stock",
                    "variation stock", "destockage"],
     "autres_charges_expl": [
         "autre charge d exploitation", "charge d exploitation",
         "achat et charge externe", "charge externe", "frai generau",
-        "frai diver", "prestation de service",
+        "frai diver", "prestation de service", "impot et taxe",
+        "impot taxe", "impot et taxe associe",
     ],
     "charges_personnel": ["charge de personnel", "remuneration du personnel"],
     "dotations": [
         "dotation aux amortissement", "dotation aux depreciation",
-        "dotation aux provision", "reprise d amortissement",
+        "dotation aux provision", "dotation d exploitation",
+        "reprise d exploitation", "reprise d amortissement",
         "reprise sur provision", "reprise d epargne",
     ],
     "resultats_expl": ["resultat d exploitation"],
     "charges_fin": ["charge d interet", "charge financiere", "interet d emprunt",
-                    "frai financier"],
-    "produits_fin": ["produit financier"],
+                    "frai financier", "perte sur cession", "perte de change",
+                    "dotation financiere", "perte sur titre",
+                    "autre charge financiere", "indemnite de remere"],
+    "produits_fin": ["produit financier", "produit des titre", "gain de change",
+                     "revenu et produit", "reprise financiere", "gain sur titre",
+                     "interet et autre produit", "indemnite de remere"],
     "resultats_fin": ["resultat financier"],
     "impots": [
         "impot sur les benefice", "impot benefice", "impot courant",
-        "impot et taxe", "impot taxe", "impot sur le chiffre",
+        "impot sur le chiffre", "impot sur le resultat",
+        "impot sur les societe",
     ],
-    "produits_exc": ["produit exceptionnel", "produit hors activite"],
-    "charges_exc": ["charge exceptionnel", "charge hors activite"],
+    "produits_exc": ["produit exceptionnel", "produit hors activite",
+                     "produit non courant"],
+    "charges_exc": ["charge exceptionnel", "charge hors activite",
+                    "charge non courante"],
     "resultat_net": ["resultat net", "resultat de l exercice",
                      "resultat du compte"],
 }
@@ -267,6 +301,10 @@ _SECTION_HEADERS = {
 
 _NUM_ONLY = re.compile(r"^[0-9 ]+$")
 
+# Lignes de contrôle d'un CPC : agrégats intermédiaires (« RESULTAT COURANT
+# (III+VI) ») sans poste correspondant dans les ratios.
+_CONTROL_TOTAL_RE = re.compile(r"^resultat (courant|non courant|avant impot)\b")
+
 # En-têtes de rubrique qui sont aussi des postes réels dès qu'ils portent un
 # montant (« Trésorerie » = solde bancaire, fréquent dans les liasses).
 _ACCOUNT_SECTIONS = {"tresorerie", "tresorerie actif", "tresorerie passif"}
@@ -289,6 +327,16 @@ def is_section_header(label: object, valued: bool = False) -> bool:
     if _NUM_ONLY.match(n):
         return True  # numéros de compte seuls
     return False
+
+
+def is_control_total(label: object) -> bool:
+    """True pour un agrégat de contrôle (« RESULTAT COURANT (III+VI) »…).
+
+    Ces lignes additionnent des rubriques déjà lues (résultat d'exploitation,
+    financier…) : les rattacher compterait deux fois, et les afficher comme
+    « non reconnues » brouillerait le diagnostic.
+    """
+    return bool(_CONTROL_TOTAL_RE.match(norm(label)))
 
 
 def detect_section(label: object) -> str | None:
@@ -316,7 +364,7 @@ def detect_section(label: object) -> str | None:
     # « COMPTE DE RÉSULTAT (suite) », « ACTIF NET »… On ne le fait que sur des
     # libellés courts, pour ne pas confondre avec un poste détaillé.
     toks = n.split()
-    if 2 <= len(toks) <= 4 and toks[0] in {"actif", "passif", "bilan",
+    if 2 <= len(toks) <= 3 and toks[0] in {"actif", "passif", "bilan",
                                            "compte", "total"}:
         if "passif" in toks:
             return "P"
@@ -368,6 +416,9 @@ def categorize_bilan(label: object, side: str | None = None) -> str | None:
     n = norm(label)
     if not n:
         return None
+    exact = _BILAN_EXACT.get(n)
+    if exact:
+        return exact[1] if side == "P" else exact[0]
     cat = _match_bilan(n, side)
     if cat is not None:
         return cat

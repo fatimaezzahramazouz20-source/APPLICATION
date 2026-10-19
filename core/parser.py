@@ -16,6 +16,14 @@ from . import pdf as pdf_reader
 _YEAR_RE = re.compile(r"\b(19|20)\d{2}\b")
 _N_RE = re.compile(r"\bn\s*-?\s*(\d)\b")
 
+# Au-delà de cette longueur, une cellule est une phrase de présentation
+# (« … Du 01/01/2021 au 31/12/2021 ») et non un en-tête de colonne.
+_LONG_CELL = 60
+
+# Marqueur de sous-total de la liasse CGNC (Maroc) : « … (b) », « … (h) ».
+_MARKER_RE = re.compile(r"\(\s*[a-kA-K]\s*\)\s*$")
+_MARKER_ANY = re.compile(r"\(\s*[a-kA-K]\s*\)")
+
 _ETAT_LABELS = {"actif", "passif", "bilan", "cpc", "produits", "charges",
                 "produit et charge", "etat", "section", "type",
                 "etat financier"}
@@ -124,26 +132,60 @@ def parse_number(value: Any) -> float | None:
     return -x if neg else x
 
 
+# Groupe numérique français : 1 à 3 chiffres, milliers séparés par une espace.
+_AMOUNT_GROUP = re.compile(
+    r"\d{1,3}(?:[\s\u00a0\u202f]\d{3})+(?:[.,]\d+)?|\d+(?:[.,]\d+)?")
+
+
+def parse_amount(value: Any) -> float | None:
+    """Comme :func:`parse_number`, en relisant une cellule fusionnée.
+
+    L'extraction des PDF colle parfois deux montants dans une même cellule
+    (« 0,00 11 833 103,15 ») : la valeur utile est alors la dernière, celle
+    qui s'aligne sur la colonne lue.
+    """
+    num = parse_number(value)
+    if num is not None:
+        return num
+    if not isinstance(value, str):
+        return None
+    groups = _AMOUNT_GROUP.findall(value)
+    if len(groups) >= 2:
+        return parse_number(groups[-1])
+    return None
+
+
 # ---------------------------------------------------------------------------
 # Détection de la structure d'une feuille
 # ---------------------------------------------------------------------------
 
 def _header_year(cell: Any) -> tuple[str, int] | None:
-    """« 2024 » -> ('Y', 2024) ; « Exercice N-1 » -> ('N', 1)."""
+    """« 2024 » -> ('Y', 2024) ; « Exercice N-1 » -> ('N', 1).
+
+    Reconnaît aussi les en-têtes de liasse sans millésime (« Exercice »,
+    « Exercice précédent », « TOTAUX DE L'EXERCICE »), fréquents dans les PDF.
+    """
     if cell is None or (isinstance(cell, float) and math.isnan(cell)):
         return None
     if isinstance(cell, (int, float)):
         y = int(cell)
         return ("Y", y) if 1990 <= y <= 2100 else None
-    text = str(cell)
+    text = str(cell).strip()
+    if len(text) > _LONG_CELL:
+        return None
     m = _YEAR_RE.search(text)
     if m:
         return ("Y", int(m.group(0)))
     n = pcg.norm(text)
+    if "precedent" in n:
+        return ("N", 1)
     m = _N_RE.search(n)
     if m:
         return ("N", int(m.group(1)))
     if n in {"n", "annee n", "annee", "exercice n", "exercice"}:
+        return ("N", 0)
+    toks = n.split()
+    if toks and toks[0] in {"total", "totau", "totaux"} and "exercice" in n:
         return ("N", 0)
     return None
 
@@ -178,29 +220,62 @@ def _find_header_row(df: pd.DataFrame, scan: int = 40) -> int:
     return best_row if best_row is not None else 0
 
 
+def _has_letters(value: Any) -> bool:
+    """True si la cellule contient du texte (et non un montant ou un tiret)."""
+    return isinstance(value, str) and any(ch.isalpha() for ch in value)
+
+
 def _is_label_column(df: pd.DataFrame, col: int, h: int,
                      etat_col: int | None) -> bool:
-    """True si la colonne ressemble à une colonne de libellés (du texte)."""
+    """True si la colonne ressemble à une colonne de libellés (du texte).
+
+    Les colonnes de montants ne doivent pas être prises pour des libellés :
+    les tirets « - » et les nombres sont donc ignorés, et une colonne n'est
+    retenue que si le texte y est au moins aussi fréquent que les nombres
+    (sinon les sous-en-têtes de liasse, ex. « Propres à l'exercice 1 » posé
+    au-dessus d'une colonne de montants, seraient pris pour des libellés).
+    """
     if col == etat_col:
         return False
-    n_text = 0
-    for i in range(h + 1, min(len(df), h + 1 + 200)):
+    n_text = n_num = 0
+    for i in range(h + 1, min(len(df), h + 1 + 300)):
         v = df.iat[i, col]
-        if isinstance(v, str) and v.strip() and not v.strip().isdigit():
+        if _has_letters(v):
             n_text += 1
-    return n_text > 0
+        elif parse_amount(v) is not None:
+            n_num += 1
+    return n_text >= 2 and n_text >= n_num
+
+
+def _name_kind(text: str) -> str | None:
+    """« Bilan », « CPC »… -> 'bilan' / 'cpc' ; None si le nom est ambigu."""
+    n = pcg.norm(text)
+    nom_cpc = any(k in n for k in ("cpc", "produit et charge", "produit",
+                                   "charge", "compte de resultat", "trep",
+                                   "resultat"))
+    nom_bilan = "bilan" in n
+    if nom_cpc and not nom_bilan:
+        return "cpc"
+    if nom_bilan and not nom_cpc:
+        return "bilan"
+    return None
 
 
 def _classify_sheet(name: str, df: pd.DataFrame) -> str:
-    """Classe une feuille : 'bilan' ou 'cpc' (par le nom puis le contenu)."""
-    n_name = pcg.norm(name)
-    if any(k in n_name for k in ("cpc", "produit et charge", "produit",
-                                 "charge", "compte de resultat", "trep",
-                                 "resultat")):
-        return "cpc"
-    if "bilan" in n_name:
-        return "bilan"
-    sample = " ".join(pcg.norm(v) for v in df.iloc[:, 0].head(60)
+    """Classe une feuille : 'bilan' ou 'cpc' (par le nom puis le contenu).
+
+    « bilan.xlsx — CPC » : le nom de la feuille (après « — ») classe le mieux.
+    « bilan cpc.pdf — p.1 » : la page ne dit rien, et le nom du fichier est
+    ambigu (« bilan cpc ») — on tranche alors sur le contenu de la page.
+    """
+    head, _, tail = name.partition(" — ")
+    head = re.sub(r"\.[a-z]{2,4}\s*$", "", head, flags=re.IGNORECASE)
+    if re.fullmatch(r"p\.\s*\d+", tail.strip(), flags=re.IGNORECASE):
+        tail = ""
+    kind = _name_kind(tail) or _name_kind(head) or _name_kind(name)
+    if kind:
+        return kind
+    sample = " ".join(pcg.norm(v) for v in df.to_numpy().ravel()[:1200]
                       if isinstance(v, str))
     b_score = sum(1 for k in _BILAN_MARKERS if k in sample)
     c_score = sum(1 for k in _CPC_MARKERS if k in sample)
@@ -218,6 +293,145 @@ def _detect_etat_column(df: pd.DataFrame) -> int | None:
         if values and values <= known | {"cpc", "bilan"}:
             return col
     return None
+
+
+def _col_has_number(df: pd.DataFrame, h: int, col: int) -> bool:
+    """True si la colonne porte au moins un montant sous la ligne d'en-tête."""
+    for i in range(h + 1, len(df)):
+        if col >= df.shape[1]:
+            return False
+        v = df.iat[i, col]
+        if isinstance(v, bool):
+            continue
+        if isinstance(v, (int, float)):
+            if not (isinstance(v, float) and math.isnan(v)):
+                return True
+        elif parse_amount(v) is not None:
+            return True
+    return False
+
+
+def _document_year(df: pd.DataFrame, rows: int = 6) -> int | None:
+    """Millésime cité en tête de document (« Du 01/01/2021 au 31/12/2021 »).
+
+    Les cellules de montants sont ignorées : un poste valorisé « 2000 » ne
+    doit pas passer pour l'exercice 2000.
+    """
+    found: list[int] = []
+    for i in range(min(rows, len(df))):
+        for c in range(df.shape[1]):
+            v = df.iat[i, c]
+            if not isinstance(v, str) or parse_number(v) is not None:
+                continue
+            found += [int(m.group(0)) for m in _YEAR_RE.finditer(v)]
+    return max(found) if found else None
+
+
+def _explicit_years(df: pd.DataFrame) -> set[int]:
+    """Millésimes portés par la ligne d'en-tête d'une feuille."""
+    h = _find_header_row(df)
+    out: set[int] = set()
+    for c in range(df.shape[1]):
+        hy = _header_year(df.iat[h, c])
+        if hy and hy[0] == "Y":
+            out.add(hy[1])
+    return out
+
+
+def _subtotal_rows(df: pd.DataFrame, h: int, label_col: int,
+                   value_cols: list[int]) -> set[int]:
+    """Lignes de sous-total « … (b) », « … (h) » dont le détail est chiffré.
+
+    Dans la liasse CGNC, les rubriques portent une lettre entre parenthèses et
+    sont suivies de leur détail : « IMMOBILISATIONS INCORPORELLES (b) » =
+    Logiciels + Autres… Additionner les deux doublerait le poste. Une ligne
+    lettrée sans détail chiffré (ex. « AUTRES PROVISIONS … (i) ») reste un
+    poste à part entière : la recherche s'arrête donc à la ligne lettrée
+    suivante.
+    """
+    marks: list[int] = []
+    bounds: list[int] = []
+    for i in range(h + 1, len(df)):
+        label = df.iat[i, label_col]
+        if not isinstance(label, str):
+            continue
+        text = label.strip()
+        if _MARKER_ANY.search(text):
+            bounds.append(i)
+            if _MARKER_RE.search(text):
+                marks.append(i)
+    skip: set[int] = set()
+    for i in marks:
+        end = len(df)
+        for b in bounds:
+            if b > i:
+                end = b
+                break
+        for j in range(i + 1, end):
+            if any(parse_amount(df.iat[j, c]) is not None
+                   for c in value_cols if c < df.shape[1]):
+                skip.add(i)
+                break
+    return skip
+
+
+def _close(a: float, b: float) -> bool:
+    return abs(a - b) <= max(0.5, 0.005 * abs(a))
+
+
+def _looks_aggregate(label: str) -> bool:
+    """True pour un libellé de rubrique agrégée plutôt qu'un poste de détail."""
+    n = pcg.norm(label)
+    if "chiffre d affaire" in n or n.startswith(("total", "totau")):
+        return True
+    letters = [ch for ch in str(label) if ch.isalpha()]
+    return bool(letters) and all(ch.isupper() for ch in letters)
+
+
+def _reconcile(items: list[tuple[str, float]]) -> float:
+    """Somme les montants d'une catégorie sans compter deux fois un agrégat.
+
+    Beaucoup d'états déclarent à la fois une rubrique et son détail
+    (« IMMOBILISATIONS INCORPORELLES (b) » = Logiciels + Autres…). Quand le
+    libellé ressemble à une rubrique agrégée et qu'un sous-ensemble des autres
+    montants lui est égal, on ne retient que l'agrégat (même somme, mais un
+    seul poste : le détail est évité).
+    """
+    if len(items) <= 1:
+        return sum(v for _, v in items)
+    remaining = list(items)
+    changed = True
+    while changed and len(remaining) > 1:
+        changed = False
+        for idx, (label, value) in enumerate(remaining):
+            if not value or not _looks_aggregate(label):
+                continue
+            others = [v for j, (_, v) in enumerate(remaining) if j != idx]
+            sub = _subset_sum(others, value)
+            if not sub:
+                continue
+            # On conserve l'agrégat et on retire ses détails (même somme).
+            keep = [idx] + [
+                j for j in range(len(remaining))
+                if j != idx and (j - (1 if j > idx else 0)) not in sub]
+            remaining = [remaining[j] for j in sorted(keep)]
+            changed = True
+            break
+    return sum(v for _, v in remaining)
+
+
+def _subset_sum(values: list[float], target: float) -> set[int] | None:
+    """Indices (dans ``values``) d'un sous-ensemble non vide égal à ``target``."""
+    n = len(values)
+    best: set[int] | None = None
+    for mask in range(1, 1 << n):
+        idx = {j for j in range(n) if mask & (1 << j)}
+        if best is not None and len(idx) <= len(best):
+            continue
+        total = sum(values[j] for j in idx)
+        if abs(total) > 1e-9 and _close(total, target):
+            best = idx
+    return best
 
 
 # ---------------------------------------------------------------------------
@@ -257,7 +471,7 @@ class SheetData:
             return
         etat_col = _detect_etat_column(df)
         h = _find_header_row(df)
-        # Colonnes portant une année (ou N / N-1…)
+        # Colonnes portant une année, un exercice ou « N / N-1 »…
         col_year: dict[int, tuple[str, int]] = {}
         for c in range(df.shape[1]):
             if c == etat_col:
@@ -269,40 +483,82 @@ class SheetData:
             self.diagnostic = ("aucune colonne d'exercice (année ou N/N-1) "
                                "détectée dans les 40 premières lignes")
             return
-        ref_year = self._infer_ref_year(col_year, df, h)
-        year_cols: dict[int, int] = {}
-        for c, (kind, val) in col_year.items():
-            if kind == "Y":
-                year_cols[c] = val
-            elif ref_year:
-                year_cols[c] = ref_year - val
-        self.year_cols = year_cols
-        self.years |= set(year_cols.values())
 
         # Colonnes de libellés (celles qui contiennent du texte) puis
         # rattachement de chaque colonne « année » au bloc de libellés situé
         # à sa gauche : gère les bilans Actif/Passif présentés côte à côte.
         label_cols = [c for c in range(df.shape[1])
-                      if c not in year_cols and c != etat_col
+                      if c not in col_year and c != etat_col
                       and _is_label_column(df, c, h, etat_col)]
         if not label_cols:
             label_cols = [0 if etat_col != 0 else 1]
         blocks: dict[int, list[int]] = {}
-        for c in sorted(year_cols):
+        for c in sorted(col_year):
             left = [lc for lc in label_cols if lc < c]
             if left:
                 blocks.setdefault(max(left), []).append(c)
         if not blocks:
-            blocks = {label_cols[0]: sorted(year_cols)}
+            blocks = {label_cols[0]: sorted(col_year)}
+
+        ref_year = self._infer_ref_year(col_year, df, h)
         self.label_cols = sorted(blocks)
         for lc, vcols in blocks.items():
-            self._parse_block(df, h, lc, vcols, etat_col)
+            # Un en-tête d'exercice peut coiffer plusieurs colonnes chiffrées
+            # (Brut / Amortissements / Net) : seul le montant net de la
+            # dernière colonne du groupe alimente l'exercice.
+            cols = sorted(vcols)
+            value_map: dict[int, int] = {}
+            for k, c in enumerate(cols):
+                nxt = cols[k + 1] if k + 1 < len(cols) else df.shape[1]
+                col = self._group_column(df, h, c, nxt, label_cols)
+                kind, val = col_year[c]
+                year = val if kind == "Y" else (
+                    int(ref_year) - val if ref_year else None)
+                if year is None:
+                    continue
+                value_map[col] = year
+                self.year_cols[col] = year
+                self.years.add(year)
+            if value_map:
+                self._parse_block(df, h, lc, value_map, etat_col)
+
+    @staticmethod
+    def _group_column(df: pd.DataFrame, h: int, col: int, nxt: int,
+                      label_cols: list[int]) -> int:
+        """Dernière colonne chiffrée couverte par un même en-tête d'exercice.
+
+        « EXERCICE » posé au-dessus de « Brut | Amortissements | Net » désigne
+        le net : on avance tant que l'en-tête reste vide et que la colonne
+        porte des montants.
+        """
+        chosen = col
+        for c in range(col + 1, nxt):
+            header = df.iat[h, c]
+            blank = header is None or (
+                isinstance(header, float) and math.isnan(header)) \
+                or not str(header).strip()
+            if blank and c not in label_cols and _col_has_number(df, h, c):
+                chosen = c
+            else:
+                break
+        return chosen
 
     # -- parsing d'un bloc (libellés + colonnes d'exercices) -------------
     def _parse_block(self, df: pd.DataFrame, h: int, label_col: int,
-                     value_cols: list[int], etat_col: int | None) -> None:
+                     value_map: dict[int, int], etat_col: int | None) -> None:
+        value_cols = sorted(value_map)
         side = None      # « A »/« P » (bilan), « CP »/« CH » (CPC)
         section = None   # « BILAN » | « CPC »
+        # Rubrique déclarée par la ligne d'en-tête (« ACTIF », « PASSIF »…) :
+        # elle vaut pour tout le bloc, y compris quand le titre de rubrique
+        # est au-dessus de l'en-tête des colonnes.
+        head_sec = pcg.detect_section(df.iat[h, label_col])
+        if head_sec in ("A", "P"):
+            side, section = head_sec, "BILAN"
+        elif head_sec:
+            section = "CPC"
+            side = head_sec if head_sec in ("CP", "CH") else None
+        subtotals = _subtotal_rows(df, h, label_col, value_cols)
         for i in range(h + 1, len(df)):
             label = df.iat[i, label_col]
             if label is None or (isinstance(label, float) and math.isnan(label)):
@@ -311,6 +567,10 @@ class SheetData:
             if not label:
                 continue
             values, has_value = self._row_values(df, i, value_cols)
+            # 0) Sous-totaux de liasse « … (b) », « … (h) » dont le détail est
+            #    chiffré en dessous : les additionner doublerait les postes.
+            if i in subtotals:
+                continue
             # 1) Totaux de bilan : lignes de contrôle (Total actif / passif)
             tot = pcg.categorize_bilan_totals(label)
             if tot and section != "CPC":
@@ -326,6 +586,10 @@ class SheetData:
                     side, section = None, "CPC"
                 else:
                     side, section = sec, "CPC"
+                continue
+            # 2bis) Agrégats de contrôle (« RESULTAT COURANT (III+VI) ») :
+            #       déjà couverts par les rubriques lues.
+            if pcg.is_control_total(label):
                 continue
             # 3) Éventuelle colonne « État » d'un CSV
             etat = pcg.norm(df.iat[i, etat_col]) if etat_col is not None else None
@@ -371,7 +635,7 @@ class SheetData:
         for c in value_cols:
             if c >= df.shape[1]:
                 continue
-            v = parse_number(df.iat[i, c])
+            v = parse_amount(df.iat[i, c])
             if v is not None:
                 has_value = True
                 values[c] = v
@@ -400,6 +664,11 @@ class SheetData:
         found = [v for kind, v in col_year.values() if kind == "Y"]
         if found:
             return max(found)
+        # Le document lui-même donne souvent l'exercice (en-tête, période) :
+        # plus fiable que l'année saisie par l'utilisateur.
+        doc = _document_year(df)
+        if doc:
+            return doc
         if getattr(self, "ref_year", None):
             return int(self.ref_year)
         return pd.Timestamp.today().year - 1
@@ -408,17 +677,24 @@ class SheetData:
     def build(self, years: list[int]) -> tuple[dict, dict]:
         bilan = {y: {} for y in years}
         cpc = {y: {} for y in years}
+        # Tous les montants d'une même catégorie sont rassemblés puis
+        # réconciliés : un sous-total déclaré ET son détail ne doivent pas
+        # être additionnés deux fois.
+        buckets: dict[tuple[str, str, int], list[tuple[str, float]]] = {}
         for row in self.rows:
             cat = row["categorie"]
             if cat is None:
                 continue
-            target = bilan if row["kind"] == "bilan" else cpc
             for c, v in row["values"].items():
                 y = getattr(self, "year_cols", {}).get(c)
                 if y is None:
                     continue
-                bucket = target.setdefault(y, {})
-                bucket[cat] = float(bucket.get(cat, 0.0)) + float(v)
+                key = (row["kind"], cat, y)
+                buckets.setdefault(key, []).append((row["libelle"],
+                                                    float(v)))
+        for (kind, cat, y), items in buckets.items():
+            target = bilan if kind == "bilan" else cpc
+            target.setdefault(y, {})[cat] = _reconcile(items)
         return bilan, cpc
 
     def value_of(self, row: dict, year: int) -> float | None:
@@ -442,7 +718,15 @@ def parse_files(files: list[tuple[str, bytes]],
     """
     warnings: list[str] = []
     sheets_raw = read_files(files, warnings)
-    sheets = [SheetData(name, df, overrides, ref_year)
+    # Les feuilles d'un même document partagent l'exercice : si une page ne
+    # porte pas de millésime (« Exercice / Exercice précédent »), on lui
+    # applique celui qu'une autre page déclare explicitement.
+    group_years: set[int] = set()
+    for _, df in sheets_raw:
+        if not df.empty:
+            group_years |= _explicit_years(df)
+    group_ref = max(group_years) if group_years else None
+    sheets = [SheetData(name, df, overrides, group_ref or ref_year)
               for name, df in sheets_raw if not df.empty]
     if not sheets:
         detail = (" " + " ".join(warnings)) if warnings else ""
