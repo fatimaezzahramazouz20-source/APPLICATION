@@ -461,6 +461,14 @@ with tab_r:
 
 # --- Données ---------------------------------------------------------------
 with tab_d:
+    diag = data.get("diagnostic") or []
+    if diag:
+        with st.expander("🔎 Diagnostic de lecture (feuilles, colonnes, "
+                         "exercices détectés)"):
+            st.dataframe(pd.DataFrame(diag), use_container_width=True)
+            st.caption("Colonnes numérotées à partir de 1 (1 = colonne A). "
+                       "« lignes_non_reconnues » = libellés non rattachés au "
+                       "plan comptable.")
     st.subheader("Agrégats normalisés (€)")
     st.dataframe(computed["aggregats"], use_container_width=True)
     c1, c2 = st.columns(2)

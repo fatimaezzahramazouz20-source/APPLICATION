@@ -134,12 +134,47 @@ def _header_year(cell: Any) -> tuple[str, int] | None:
     return None
 
 
-def _find_header_row(df: pd.DataFrame, scan: int = 8) -> int:
+def _find_header_row(df: pd.DataFrame, scan: int = 40) -> int:
+    """Trouve la ligne d'en-tête : celle qui contient le plus d'années.
+
+    Un en-tête peut être précédé d'un bloc de présentation (raison sociale,
+    adresse, dates…) : on balaie donc les 40 premières lignes et on retient
+    la ligne qui porte le plus de cellules « année » et le moins de valeurs
+    numériques parasites.
+    """
+    best_row, best_score = None, 0
     for i in range(min(scan, len(df))):
-        for cell in df.iloc[i, 1:]:
-            if _header_year(cell) is not None:
-                return i
-    return 0
+        year_cells = [c for c in range(df.shape[1])
+                      if _header_year(df.iat[i, c]) is not None]
+        if not year_cells:
+            continue
+        # Une vraie ligne d'en-tête ne contient presque que des libellés :
+        # on pénalise les nombres présents en dehors des colonnes « année ».
+        parasites = 0
+        for c in range(df.shape[1]):
+            if c in year_cells:
+                continue
+            v = df.iat[i, c]
+            if isinstance(v, (int, float)) and not isinstance(v, bool) \
+                    and not (isinstance(v, float) and math.isnan(v)):
+                parasites += 1
+        score = len(year_cells) * 2 - parasites
+        if score > best_score:
+            best_row, best_score = i, score
+    return best_row if best_row is not None else 0
+
+
+def _is_label_column(df: pd.DataFrame, col: int, h: int,
+                     etat_col: int | None) -> bool:
+    """True si la colonne ressemble à une colonne de libellés (du texte)."""
+    if col == etat_col:
+        return False
+    n_text = 0
+    for i in range(h + 1, min(len(df), h + 1 + 200)):
+        v = df.iat[i, col]
+        if isinstance(v, str) and v.strip() and not v.strip().isdigit():
+            n_text += 1
+    return n_text > 0
 
 
 def _classify_sheet(name: str, df: pd.DataFrame) -> str:
@@ -182,7 +217,21 @@ class SheetData:
         self.rows: list[dict] = []          # libellé + valeurs par exercice
         self.unmapped: list[dict] = []
         self.years: set[int] = set()
+        self.year_cols: dict[int, int] = {}
+        self.label_cols: list[int] = []
+        self.diagnostic: str | None = None
         self._parse(df)
+        self.info = {
+            "feuille": name,
+            "type": self.kind,
+            "colonnes_libelles": [c + 1 for c in self.label_cols],
+            "colonnes_exercices": sorted(self.year_cols),
+            "annees": sorted(self.years),
+            "lignes_reconnues": sum(1 for r in self.rows
+                                    if r["categorie"] is not None),
+            "lignes_non_reconnues": len(self.unmapped),
+            "detail": self.diagnostic,
+        }
 
     # -- parsing ---------------------------------------------------------
     def _parse(self, df: pd.DataFrame) -> None:
@@ -190,16 +239,17 @@ class SheetData:
             return
         etat_col = _detect_etat_column(df)
         h = _find_header_row(df)
-        label_col = 0 if etat_col != 0 else 1
-        # Colonnes d'exercices
+        # Colonnes portant une année (ou N / N-1…)
         col_year: dict[int, tuple[str, int]] = {}
         for c in range(df.shape[1]):
-            if c in (label_col, etat_col):
+            if c == etat_col:
                 continue
             hy = _header_year(df.iat[h, c])
             if hy is not None:
                 col_year[c] = hy
         if not col_year:
+            self.diagnostic = ("aucune colonne d'exercice (année ou N/N-1) "
+                               "détectée dans les 40 premières lignes")
             return
         ref_year = self._infer_ref_year(col_year, df, h)
         year_cols: dict[int, int] = {}
@@ -210,7 +260,29 @@ class SheetData:
                 year_cols[c] = ref_year - val
         self.year_cols = year_cols
         self.years |= set(year_cols.values())
-        # Lignes
+
+        # Colonnes de libellés (celles qui contiennent du texte) puis
+        # rattachement de chaque colonne « année » au bloc de libellés situé
+        # à sa gauche : gère les bilans Actif/Passif présentés côte à côte.
+        label_cols = [c for c in range(df.shape[1])
+                      if c not in year_cols and c != etat_col
+                      and _is_label_column(df, c, h, etat_col)]
+        if not label_cols:
+            label_cols = [0 if etat_col != 0 else 1]
+        blocks: dict[int, list[int]] = {}
+        for c in sorted(year_cols):
+            left = [lc for lc in label_cols if lc < c]
+            if left:
+                blocks.setdefault(max(left), []).append(c)
+        if not blocks:
+            blocks = {label_cols[0]: sorted(year_cols)}
+        self.label_cols = sorted(blocks)
+        for lc, vcols in blocks.items():
+            self._parse_block(df, h, lc, vcols, etat_col)
+
+    # -- parsing d'un bloc (libellés + colonnes d'exercices) -------------
+    def _parse_block(self, df: pd.DataFrame, h: int, label_col: int,
+                     value_cols: list[int], etat_col: int | None) -> None:
         side = None      # « A »/« P » (bilan), « CP »/« CH » (CPC)
         section = None   # « BILAN » | « CPC »
         for i in range(h + 1, len(df)):
@@ -223,7 +295,7 @@ class SheetData:
             # 1) Totaux de bilan : lignes de contrôle (Total actif / passif)
             tot = pcg.categorize_bilan_totals(label)
             if tot and section != "CPC":
-                values, has_value = self._row_values(df, i, year_cols)
+                values, has_value = self._row_values(df, i, value_cols)
                 if has_value:
                     self._record(label, tot, values, "bilan")
                 continue
@@ -249,7 +321,7 @@ class SheetData:
                         else ("CP" if etat == "produits" else "CH"))
             if pcg.is_section_header(label):
                 continue
-            values, has_value = self._row_values(df, i, year_cols)
+            values, has_value = self._row_values(df, i, value_cols)
             if not has_value:
                 continue
             kind = self.kind
@@ -268,10 +340,10 @@ class SheetData:
             self._record(label, cat, values, kind)
 
     def _row_values(self, df: pd.DataFrame, i: int,
-                    year_cols: dict[int, int]) -> tuple[dict[int, float], bool]:
+                    value_cols) -> tuple[dict[int, float], bool]:
         values: dict[int, float] = {}
         has_value = False
-        for c in year_cols:
+        for c in value_cols:
             if c >= df.shape[1]:
                 continue
             v = parse_number(df.iat[i, c])
@@ -339,9 +411,13 @@ def parse_files(files: list[tuple[str, bytes]],
     for s in sheets:
         years |= s.years
     if not years:
+        detail = " ; ".join(
+            f"« {s.name} » ({s.kind}) : {s.diagnostic or 'aucune année'}"
+            for s in sheets)
         raise ValueError(
-            "Aucun exercice détecté : les colonnes doivent porter une année "
-            "(ex. « 2024 ») ou être nommées « N », « N-1 »…")
+            "Aucun exercice détecté. Les colonnes d'exercices doivent porter "
+            "une année (ex. « 2024 », « 31/12/2024 ») ou être nommées "
+            "« N », « N-1 »… Détail de lecture : " + detail)
     year_list = sorted(years)
 
     bilan_by_year: dict[int, dict] = {y: {} for y in year_list}
@@ -367,12 +443,16 @@ def parse_files(files: list[tuple[str, bytes]],
     has_cpc = any(any(vals.values()) for vals in cpc_by_year.values())
     if not has_bilan:
         raise ValueError(
-            "Aucune ligne de bilan reconnue. Vérifiez que le fichier "
-            "contient un onglet « Bilan » avec les postes (Actif / Passif).")
+            "Aucune ligne de bilan reconnue. Vérifiez que le fichier contient "
+            "un onglet « Bilan » avec les postes (Actif / Passif). "
+            f"{len(unmapped_rows)} ligne(s) n'ont pas pu être rattachées au "
+            "plan comptable — voir l'onglet « 📊 Données » pour les détails.")
     if not has_cpc:
         raise ValueError(
             "Aucun poste de produits et charges reconnu. Vérifiez que le "
-            "fichier contient un onglet « CPC » (ventes, achats, charges…).")
+            "fichier contient un onglet « CPC » (ventes, achats, charges…). "
+            f"{len(unmapped_rows)} ligne(s) n'ont pas pu être rattachées au "
+            "plan comptable — voir l'onglet « 📊 Données » pour les détails.")
 
     pcg.derive_years(bilan_by_year, cpc_by_year)
 
@@ -391,6 +471,7 @@ def parse_files(files: list[tuple[str, bytes]],
         "cpc_table": _table(cpc_by_year),
         "unmapped": pd.DataFrame(unmapped_rows),
         "sheets": [{"nom": s.name, "type": s.kind} for s in sheets],
+        "diagnostic": [s.info for s in sheets],
     }
 
 
