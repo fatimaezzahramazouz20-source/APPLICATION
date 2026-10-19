@@ -509,19 +509,20 @@ with tab_s:
         st.download_button("⬇️ Synthèse (Markdown)", data=texte,
                            file_name=f"synthese_{last}.md",
                            mime="text/markdown",
-                           use_container_width=True)
+                           use_container_width=True, key="dl_synth_tab")
     with col2:
         st.download_button("⬇️ Analyse complète (Excel)",
                            data=exp.export_excel(data, computed, anomalies),
                            file_name=f"analyse_financiere_{last}.xlsx",
                            mime=("application/vnd.openxmlformats-officedocument"
                                  ".spreadsheetml.sheet"),
-                           use_container_width=True)
+                           use_container_width=True, key="dl_xlsx_tab")
     with col3:
         ia_dispo = provider == "Ollama (local)" or bool(api_key.strip())
         if st.button("✨ Enrichir avec l'IA", use_container_width=True,
                      disabled=not ia_dispo,
-                     help="Clé API requise (sidebar)" if not ia_dispo else ""):
+                     help="Clé API requise (sidebar)" if not ia_dispo else "",
+                     key="btn_ia_tab"):
             with st.spinner("Rédaction de la synthèse par l'IA…"):
                 try:
                     st.session_state["synth_ia"] = syn.synthese_ia(
@@ -537,7 +538,7 @@ with tab_s:
         st.download_button("⬇️ Synthèse IA (Markdown)",
                            data=st.session_state["synth_ia"],
                            file_name=f"synthese_ia_{last}.md",
-                           mime="text/markdown")
+                           mime="text/markdown", key="dl_ia_tab")
 
 # ---------------------------------------------------------------------------
 # Dashboard entreprise (résumé global)
@@ -563,10 +564,10 @@ with st.expander("📊 Dashboard entreprise", expanded=False):
         g_rn_pct = ((c(last, "resultat_net") - rn0) / abs(rn0) * 100) if rn0 else None
         c1, c2 = st.columns(2)
         with c1:
-            st.caption(f"CA : {_pct(g_ca_pct, sign=False)} vs {prev}")
+            st.caption(f"CA : {syn._pct(g_ca_pct, sign=False)} vs {prev}")
             st.line_chart(pd.DataFrame({"CA": [ca0, ca]}, index=[prev, last]))
         with c2:
-            st.caption(f"Résultat net : {_pct(g_rn_pct, sign=False)} vs {prev}")
+            st.caption(f"Résultat net : {syn._pct(g_rn_pct, sign=False)} vs {prev}")
             st.line_chart(pd.DataFrame({"RN": [rn0, c(last, "resultat_net")]}, index=[prev, last]))
     # Liquidité dans le temps
     st.markdown("**Liquidité (actif circulant / dettes CT) dans le temps**")
@@ -587,7 +588,8 @@ c1, c2 = st.columns(2)
 with c1:
     st.download_button("⬇️ Synthèse (Markdown)", data=texte,
                        file_name=f"synthese_{last}.md",
-                       mime="text/markdown", use_container_width=True)
+                       mime="text/markdown", use_container_width=True,
+                       key="dl_synth_export")
 with c2:
     st.download_button("⬇️ Analyse complète (Excel)",
                        data=exp.export_excel(data, computed, anomalies),
@@ -599,7 +601,8 @@ with col3:
     ia_dispo = provider == "Ollama (local)" or bool(api_key.strip())
     if st.button("✨ Enrichir avec l'IA", use_container_width=True,
                  disabled=not ia_dispo,
-                 help="Clé API requise (sidebar)" if not ia_dispo else ""):
+                 help="Clé API requise (sidebar)" if not ia_dispo else "",
+                 key="btn_ia_export"):
         with st.spinner("Rédaction de la synthèse par l'IA…"):
             try:
                 st.session_state["synth_ia"] = syn.synthese_ia(
@@ -615,4 +618,4 @@ with col3:
         st.download_button("⬇️ Synthèse IA (Markdown)",
                            data=st.session_state["synth_ia"],
                            file_name=f"synthese_ia_{last}.md",
-                           mime="text/markdown")
+                           mime="text/markdown", key="dl_ia_export")
