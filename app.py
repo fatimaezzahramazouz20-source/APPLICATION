@@ -320,9 +320,9 @@ with st.sidebar:
                            file_name="gabarit_etats_financiers.xlsx",
                            mime=("application/vnd.openxmlformats-officedocument"
                                  ".spreadsheetml.sheet"),
-                           use_container_width=True)
+                           width="stretch")
     with c2:
-        if st.button("🧪 Exemple", use_container_width=True,
+        if st.button("🧪 Exemple", width="stretch",
                      help="Charge un jeu d'exemple sur 3 exercices"):
             st.session_state["use_sample"] = True
             st.rerun()
@@ -452,7 +452,7 @@ tab_r, tab_d, tab_a, tab_s = st.tabs(
 # --- Ratios ----------------------------------------------------------------
 with tab_r:
     st.subheader("Ratios financiers — seuils de contrôle par exercice")
-    st.dataframe(computed["ratios"], use_container_width=True, height=520)
+    st.dataframe(computed["ratios"], width="stretch", height=520)
     st.caption("🟢 conforme · 🟡 limite · 🔴 hors seuil — statut calculé sur "
                "l'exercice le plus récent. « Écart N/N-1 » = évolution de "
                "l'exercice N par rapport à N-1.")
@@ -479,20 +479,20 @@ with tab_d:
     if diag:
         with st.expander("🔎 Diagnostic de lecture (feuilles, colonnes, "
                          "exercices détectés)"):
-            st.dataframe(pd.DataFrame(diag), use_container_width=True)
+            st.dataframe(pd.DataFrame(diag), width="stretch")
             st.caption("Colonnes numérotées à partir de 1 (1 = colonne A). "
                        "« lignes_non_reconnues » = libellés non rattachés au "
                        "plan comptable.")
     st.subheader("Agrégats normalisés (€)")
-    st.dataframe(computed["aggregats"], use_container_width=True)
+    st.dataframe(computed["aggregats"], width="stretch")
     c1, c2 = st.columns(2)
     with c1:
         st.markdown("**Bilan normalisé**")
-        st.dataframe(data["bilan_table"], use_container_width=True,
+        st.dataframe(data["bilan_table"], width="stretch",
                      height=420)
     with c2:
         st.markdown("**Compte de produits et charges normalisé**")
-        st.dataframe(data["cpc_table"], use_container_width=True, height=420)
+        st.dataframe(data["cpc_table"], width="stretch", height=420)
     unmapped = data["unmapped"]
     remap = dict(st.session_state.get("remap") or {})
     pending = dict(remap)
@@ -552,7 +552,7 @@ with tab_d:
                 _bump_remap_stamp()
                 st.rerun()
 
-        st.dataframe(unmapped, use_container_width=True)
+        st.dataframe(unmapped, width="stretch")
     else:
         st.success("Toutes les lignes ont été rattachées à une catégorie "
                    "du plan comptable.")
@@ -589,17 +589,17 @@ with tab_s:
         st.download_button("⬇️ Synthèse (Markdown)", data=texte,
                            file_name=f"synthese_{last}.md",
                            mime="text/markdown",
-                           use_container_width=True, key="dl_synth_tab")
+                           width="stretch", key="dl_synth_tab")
     with col2:
         st.download_button("⬇️ Analyse complète (Excel)",
                            data=exp.export_excel(data, computed, anomalies),
                            file_name=f"analyse_financiere_{last}.xlsx",
                            mime=("application/vnd.openxmlformats-officedocument"
                                  ".spreadsheetml.sheet"),
-                           use_container_width=True, key="dl_xlsx_tab")
+                           width="stretch", key="dl_xlsx_tab")
     with col3:
         ia_dispo = provider == "Ollama (local)" or bool(api_key.strip())
-        if st.button("✨ Enrichir avec l'IA", use_container_width=True,
+        if st.button("✨ Enrichir avec l'IA", width="stretch",
                      disabled=not ia_dispo,
                      help="Clé API requise (sidebar)" if not ia_dispo else "",
                      key="btn_ia_tab"):
@@ -668,7 +668,7 @@ c1, c2 = st.columns(2)
 with c1:
     st.download_button("⬇️ Synthèse (Markdown)", data=texte,
                        file_name=f"synthese_{last}.md",
-                       mime="text/markdown", use_container_width=True,
+                       mime="text/markdown", width="stretch",
                        key="dl_synth_export")
 with c2:
     st.download_button("⬇️ Analyse complète (Excel)",
@@ -676,10 +676,10 @@ with c2:
                        file_name=f"analyse_financiere_{last}.xlsx",
                        mime=("application/vnd.openxmlformats-officedocument"
                              ".spreadsheetml.sheet"),
-                       use_container_width=True)
+                       width="stretch")
 with col3:
     ia_dispo = provider == "Ollama (local)" or bool(api_key.strip())
-    if st.button("✨ Enrichir avec l'IA", use_container_width=True,
+    if st.button("✨ Enrichir avec l'IA", width="stretch",
                  disabled=not ia_dispo,
                  help="Clé API requise (sidebar)" if not ia_dispo else "",
                  key="btn_ia_export"):
