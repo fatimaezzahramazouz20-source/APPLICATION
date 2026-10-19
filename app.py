@@ -28,106 +28,192 @@ st.set_page_config(page_title="Analyse des états financiers", page_icon="📊",
 
 st.markdown("""
 <style>
-/* --- Fond principal : dégradé bleu nuit « marchés financiers » --- */
+/* =========================================================
+   DESIGN FINANCE — style « terminal de marché »
+   Typographie petite, dense, professionnelle
+   ========================================================= */
+
+/* --- Typo globale : petite et condensée --- */
+html, body, .stApp, p, li, label, div {
+    font-family: "Source Sans Pro", "Segoe UI", "Arial Narrow", sans-serif !important;
+    font-size: 0.83rem !important;      /* corps de texte réduit */
+    letter-spacing: 0.2px;
+    line-height: 1.45;
+}
+
+/* --- Fond : noir-bleu « salle des marchés » --- */
 .stApp {
-    background: linear-gradient(160deg, #0B1F33 0%, #0E2740 45%, #123659 100%);
+    background: linear-gradient(180deg, #070D14 0%, #0A121C 55%, #060A10 100%) !important;
     background-attachment: fixed;
 }
 
-/* --- Grille discrète façon écran de trading --- */
+/* --- Bandeau supérieur fin or (comme un ticker) --- */
 [data-testid="stAppViewContainer"]::before {
     content: "";
     position: fixed;
-    inset: 0;
-    background-image:
-        linear-gradient(rgba(212,175,55,0.05) 1px, transparent 1px),
-        linear-gradient(90deg, rgba(212,175,55,0.05) 1px, transparent 1px);
-    background-size: 48px 48px;
+    top: 0; left: 0; right: 0;
+    height: 4px;
+    background: linear-gradient(90deg, #0D2B45, #C9A227 35%, #2ECC71 65%, #0D2B45);
+    z-index: 999;
     pointer-events: none;
-    z-index: 0;
 }
 
-/* --- Titres : couleur or --- */
-h1, h2, h3 {
-    color: #D4AF37 !important;
-    font-family: 'Segoe UI', sans-serif;
+/* --- Titres : petits, fins, style rapport financier --- */
+h1 {
+    font-size: 1.35rem !important;
+    font-weight: 600 !important;
+    color: #E8EDF2 !important;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    border-bottom: 1px solid rgba(201,162,39,0.45);
+    padding-bottom: 6px;
+    margin-top: 0.4rem;
+}
+h2 {
+    font-size: 1.05rem !important;
+    font-weight: 600 !important;
+    color: #C9A227 !important;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+}
+h3 {
+    font-size: 0.92rem !important;
+    font-weight: 600 !important;
+    color: #9FB3C8 !important;
 }
 
-h1 { letter-spacing: 0.5px; }
-
-/* --- Texte courant --- */
-[data-testid="stMarkdownContainer"], p, li, label {
-    color: #ECF2F8;
+/* --- Texte courant : gris-bleu clair --- */
+[data-testid="stMarkdownContainer"], p, li, label, span {
+    color: #C7D3DF !important;
 }
+b, strong { color: #E8EDF2 !important; }
 
-/* --- Barre latérale : bleu plus foncé + filet or --- */
+/* --- Sidebar : panneau de contrôle, très compact --- */
 [data-testid="stSidebar"] {
-    background: linear-gradient(180deg, #0A1A2B 0%, #102A44 100%);
-    border-right: 2px solid rgba(212,175,55,0.35);
+    background: #0A0F17 !important;
+    border-right: 1px solid rgba(201,162,39,0.35);
 }
-[data-testid="stSidebar"] h1,
-[data-testid="stSidebar"] h2,
-[data-testid="stSidebar"] h3 {
-    color: #D4AF37 !important;
+[data-testid="stSidebar"] * { font-size: 0.78rem !important; }
+[data-testid="stSidebar"] h1 {
+    font-size: 1rem !important;
+    color: #C9A227 !important;
+    border-bottom: 1px solid rgba(201,162,39,0.4);
 }
-
-/* --- Cartes / encadrés style rapport financier --- */
-[data-testid="stExpander"],
-[data-testid="stVerticalBlock"] > div:has(> div > [data-testid="stMarkdownContainer"] > p) {
-    background: rgba(19, 46, 74, 0.55);
-    border: 1px solid rgba(212,175,55,0.25);
-    border-radius: 10px;
+[data-testid="stSidebar"] [data-testid="stMarkdownContainer"] p {
+    color: #8FA3B8 !important;
+    font-size: 0.72rem !important;
 }
 
-/* --- KPI header : cartes dorées --- */
+/* --- KPI : cartes compactes type écran Bloomberg --- */
 [data-testid="stMetric"] {
-    background: linear-gradient(145deg, rgba(19,46,74,0.9), rgba(11,31,51,0.9));
-    border: 1px solid rgba(212,175,55,0.4);
-    border-radius: 12px;
-    padding: 14px 18px;
-    box-shadow: 0 4px 14px rgba(0,0,0,0.35);
+    background: #0D1622 !important;
+    border: 1px solid rgba(201,162,39,0.3);
+    border-top: 2px solid #C9A227;
+    border-radius: 4px;
+    padding: 8px 12px !important;
 }
-[data-testid="stMetricValue"] { color: #F1C40F !important; }
-[data-testid="stMetricLabel"] { color: #A9C4DC !important; }
-[data-testid="stMetricDelta"] { color: #7DCEA0 !important; }
+[data-testid="stMetricValue"] {
+    color: #F5D67B !important;
+    font-size: 1.15rem !important;
+    font-weight: 600 !important;
+    font-variant-numeric: tabular-nums;
+}
+[data-testid="stMetricLabel"] {
+    color: #7F93A8 !important;
+    font-size: 0.68rem !important;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+}
+[data-testid="stMetricDelta"] { font-size: 0.72rem !important; }
 
-/* --- Boutons : style doré --- */
+/* --- Boutons : fins, style terminal --- */
 .stButton > button {
-    background: linear-gradient(145deg, #D4AF37, #B8962E);
-    color: #0B1F33;
-    font-weight: 600;
-    border: none;
-    border-radius: 8px;
-    transition: transform 0.15s ease, box-shadow 0.15s ease;
+    background: #101B2A !important;
+    border: 1px solid rgba(201,162,39,0.5) !important;
+    color: #C9A227 !important;
+    font-size: 0.76rem !important;
+    font-weight: 600 !important;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+    border-radius: 3px !important;
+    transition: all 0.15s ease;
 }
 .stButton > button:hover {
-    transform: translateY(-1px);
-    box-shadow: 0 6px 16px rgba(212,175,55,0.35);
-    color: #000;
+    background: #C9A227 !important;
+    color: #070D14 !important;
+    border-color: #C9A227 !important;
 }
 
-/* --- Tableaux : lignes alternées --- */
-[data-testid="stDataFrame"] {
-    border: 1px solid rgba(212,175,55,0.3);
-    border-radius: 8px;
+/* --- Onglets : onglets de navigation plate --- */
+[data-baseweb="tab-list"] { gap: 0 !important; background: transparent; }
+[data-baseweb="tab"] {
+    font-size: 0.78rem !important;
+    color: #7F93A8 !important;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    padding: 6px 16px !important;
+    border-right: 1px solid rgba(127,147,168,0.2);
 }
-
-/* --- Onglets : soulignés en or --- */
-[data-baseweb="tab-list"] { gap: 8px; }
-[data-baseweb="tab"] { color: #A9C4DC; }
 [data-baseweb="tab"][aria-selected="true"] {
-    color: #F1C40F;
-    border-bottom-color: #D4AF37;
+    color: #F5D67B !important;
+    background: rgba(201,162,39,0.08);
+    border-bottom: 2px solid #C9A227 !important;
 }
+
+/* --- Tableaux / dataframes : lignes alternées type registre --- */
+[data-testid="stDataFrame"],
+[data-testid="stTable"] {
+    border: 1px solid rgba(201,162,39,0.25) !important;
+    border-radius: 3px;
+}
+[data-testid="stDataFrame"] table { font-size: 0.76rem !important; }
+
+/* --- Expanders : panneaux quasi noirs, coins vifs --- */
+[data-testid="stExpander"] {
+    background: #0D1622 !important;
+    border: 1px solid rgba(127,147,168,0.22) !important;
+    border-radius: 4px !important;
+}
+[data-testid="stExpander"] summary {
+    color: #C9A227 !important;
+    font-size: 0.8rem !important;
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+}
+
+/* --- Alertes / anomalies : filet latéral codé par gravité --- */
+[data-testid="stAlert"] {
+    border-radius: 3px !important;
+    border-left: 3px solid #C9A227 !important;
+    background: #0D1622 !important;
+    font-size: 0.78rem !important;
+}
+
+/* --- Blocs de code / markdown : encadrés --- */
+[data-testid="stMarkdownContainer"] > p > em { color: #8FA3B8 !important; }
 
 /* --- Séparateurs --- */
-hr { border-color: rgba(212,175,55,0.3) !important; }
+hr { border-color: rgba(127,147,168,0.25) !important; }
 
-/* --- Blocs d'alerte / anomalies --- */
-[data-testid="stAlert"] {
-    border-radius: 10px;
-    border-left: 4px solid #D4AF37;
+/* --- Barres de défilement discrètes --- */
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: #070D14; }
+::-webkit-scrollbar-thumb { background: #1B2A3D; border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: #C9A227; }
+
+/* --- Champs de saisie : style terminal --- */
+[data-testid="stTextInput"] input,
+[data-testid="stNumberInput"] input,
+[data-testid="stTextArea"] textarea {
+    background: #0A121C !important;
+    border: 1px solid rgba(127,147,168,0.3) !important;
+    border-radius: 3px !important;
+    color: #E8EDF2 !important;
+    font-size: 0.78rem !important;
 }
+
+/* --- Téléchargeurs --- */
+[data-testid="stDownloadButton"] { font-size: 0.76rem !important; }
 </style>
 """, unsafe_allow_html=True)
 
