@@ -211,8 +211,10 @@ def _detect_etat_column(df: pd.DataFrame) -> int | None:
 # ---------------------------------------------------------------------------
 
 class SheetData:
-    def __init__(self, name: str, df: pd.DataFrame):
+    def __init__(self, name: str, df: pd.DataFrame,
+                 overrides: dict[str, str] | None = None):
         self.name = name
+        self.overrides = overrides
         self.kind = _classify_sheet(name, df)
         self.rows: list[dict] = []          # libellé + valeurs par exercice
         self.unmapped: list[dict] = []
@@ -292,10 +294,10 @@ class SheetData:
             label = str(label).strip()
             if not label:
                 continue
+            values, has_value = self._row_values(df, i, value_cols)
             # 1) Totaux de bilan : lignes de contrôle (Total actif / passif)
             tot = pcg.categorize_bilan_totals(label)
             if tot and section != "CPC":
-                values, has_value = self._row_values(df, i, value_cols)
                 if has_value:
                     self._record(label, tot, values, "bilan")
                 continue
@@ -319,16 +321,23 @@ class SheetData:
                 section = "BILAN" if etat == "bilan" else "CPC"
                 side = (None if etat in {"cpc", "bilan", "produit et charge"}
                         else ("CP" if etat == "produits" else "CH"))
-            if pcg.is_section_header(label):
-                continue
-            values, has_value = self._row_values(df, i, value_cols)
-            if not has_value:
-                continue
             kind = self.kind
             if section == "BILAN":
                 kind = "bilan"
             elif section == "CPC":
                 kind = "cpc"
+            # 4) En-têtes de rubrique : sans montant, rien à lire. Avec un
+            #    montant (agrégat « Immobilisations », « Actif circulant »…),
+            #    on les remonte en « non reconnues » plutôt que de les perdre
+            #    en silence — l'utilisateur peut ensuite les rattacher.
+            if pcg.is_section_header(label, valued=has_value):
+                n_lab = pcg.norm(label)
+                if (has_value and not n_lab.startswith("total")
+                        and "dont" not in n_lab):
+                    self._record(label, None, values, kind)
+                continue
+            if not has_value:
+                continue
             if kind == "bilan":
                 cat = pcg.categorize_bilan(
                     label, side if side in ("A", "P") else None)
@@ -353,6 +362,14 @@ class SheetData:
         return values, has_value
 
     def _record(self, label: str, cat: str | None, values: dict, kind: str):
+        # Recollement manuel : si l'utilisateur a relié ce libellé à une
+        # catégorie, son choix prime sur la détection automatique.
+        key = pcg.norm(label)
+        override = (self.overrides or {}).get(key)
+        if override == "__ignorer__":
+            return
+        if override:
+            cat = override
         entry = {"libelle": label, "categorie": cat, "values": values,
                  "kind": kind}
         self.rows.append(entry)
@@ -399,10 +416,15 @@ class SheetData:
 # ---------------------------------------------------------------------------
 
 def parse_files(files: list[tuple[str, bytes]],
-                ref_year: int | None = None) -> dict:
-    """Parse les fichiers et renvoie un dictionnaire normalisé."""
+                ref_year: int | None = None,
+                overrides: dict[str, str] | None = None) -> dict:
+    """Parse les fichiers et renvoie un dictionnaire normalisé.
+
+    ``overrides`` : recollements manuels {libellé normalisé → catégorie} posés
+    par l'utilisateur dans l'interface (« __ignorer__ » pour exclure une ligne).
+    """
     sheets_raw = read_files(files)
-    sheets = [SheetData(name, df) for name, df in sheets_raw
+    sheets = [SheetData(name, df, overrides) for name, df in sheets_raw
               if not df.empty]
     if not sheets:
         raise ValueError("Aucune donnée exploitable dans le fichier fourni.")
@@ -497,6 +519,7 @@ _CAT_LABELS = {
     "total_passif": "TOTAL PASSIF (déclaré)",
     "total_passif_calc": "→ Total passif (calculé)",
     "capital": "Capital social / apports",
+    "capitaux_propres_declare": "Capitaux propres (ligne du fichier)",
     "reserve_legale": "Réserve légale",
     "reserves": "Réserves, report à nouveau…",
     "resultat": "Résultat de l'exercice",

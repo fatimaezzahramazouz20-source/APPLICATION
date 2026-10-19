@@ -43,7 +43,7 @@ BILAN_CATS: dict[str, tuple[str, list[str]]] = {
     "tresorerie_active": (
         "A",
         [
-            "tresorerie actif", "valeur mobilier", "placement",
+            "tresorerie actif", "tresorerie", "valeur mobilier", "placement",
             "banque", "caisse", "cheque", "vmp", "epargne", "livret",
         ],
     ),
@@ -84,10 +84,11 @@ BILAN_CATS: dict[str, tuple[str, list[str]]] = {
          "denree", "approvisionnement", "travaux en cours"],
     ),
     # --- Passif ------------------------------------------------------------
+    "capitaux_propres_declare": ("P", ["capitau propre", "fond propre"]),
     "capital": ("P", ["capital social", "capital", "apport", "souscription"]),
     "reserves": (
-        "P", ["reserve", "report a nouveau", "report nouveau", "resultat reporte",
-              "benefice repartir"],
+        "P", ["reserve", "report a nouveau", "report nouveau",
+              "resultat reporte", "benefice a nouveau", "benefice repartir"],
     ),
     "reserve_legale": ("P", ["reserve legale"]),
     "resultat": ("P", ["resultat de l exercice", "resultat net", "resultat de l exercice"]),
@@ -103,7 +104,8 @@ BILAN_CATS: dict[str, tuple[str, list[str]]] = {
     "dettes_fin_lt": (
         "P",
         ["emprunt", "dettes rattach", "rachat d annuite", "obligation",
-         "credit bail"],
+         "credit bail", "etablissement de credit", "pret",
+         "credit bancaire", "dette bancaire"],
     ),
     "provisions_lt": (
         "P",
@@ -123,7 +125,7 @@ BILAN_CATS: dict[str, tuple[str, list[str]]] = {
     "autres_dettes_expl": ("P", ["autre dette", "dette", "autre passif"]),
     "tresorerie_passive": (
         "P",
-        ["tresorerie passif", "decouvert", "soldes debiteur",
+        ["tresorerie passif", "tresorerie", "decouvert", "soldes debiteur",
          "compte de banque debiteur"],
     ),
 }
@@ -135,6 +137,7 @@ BILAN_ORDER = [
     "charges_a_payer", "produits_a_recevoir", "clients",
     "dettes_fournisseurs", "dettes_personnel", "dettes_etat",
     "dettes_fin_ct", "dettes_fin_lt", "provisions_lt",
+    "capitaux_propres_declare",
     "reserve_legale", "reserves", "capital", "subventions_invest",
     "amortissements_regl", "pertes", "resultat",
     "etat_actif", "personnel_actif", "autres_creances", "autres_dettes_expl",
@@ -159,7 +162,11 @@ CPC_CATS: dict[str, list[str]] = {
     "achats_matieres": ["achat de matiere", "matiere premiere"],
     "var_stocks": ["variation de stock", "variation des stock",
                    "variation stock", "destockage"],
-    "autres_charges_expl": ["autre charge d exploitation", "charge d exploitation"],
+    "autres_charges_expl": [
+        "autre charge d exploitation", "charge d exploitation",
+        "achat et charge externe", "charge externe", "frai generau",
+        "frai diver", "prestation de service",
+    ],
     "charges_personnel": ["charge de personnel", "remuneration du personnel"],
     "dotations": [
         "dotation aux amortissement", "dotation aux depreciation",
@@ -167,13 +174,18 @@ CPC_CATS: dict[str, list[str]] = {
         "reprise sur provision", "reprise d epargne",
     ],
     "resultats_expl": ["resultat d exploitation"],
-    "charges_fin": ["charge d interet", "charge financiere", "interet d emprunt"],
+    "charges_fin": ["charge d interet", "charge financiere", "interet d emprunt",
+                    "frai financier"],
     "produits_fin": ["produit financier"],
     "resultats_fin": ["resultat financier"],
-    "impots": ["impot sur les benefice", "impot benefice", "impot courant"],
+    "impots": [
+        "impot sur les benefice", "impot benefice", "impot courant",
+        "impot et taxe", "impot taxe", "impot sur le chiffre",
+    ],
     "produits_exc": ["produit exceptionnel", "produit hors activite"],
     "charges_exc": ["charge exceptionnel", "charge hors activite"],
-    "resultat_net": ["resultat net"],
+    "resultat_net": ["resultat net", "resultat de l exercice",
+                     "resultat du compte"],
 }
 
 CPC_ORDER = [
@@ -201,6 +213,7 @@ LEXICON = {
     "personnel_actif": "Créances sur le personnel",
     "autres_creances": "Autres créances",
     "tresorerie_active": "Trésorerie - Actif",
+    "capitaux_propres_declare": "Capitaux propres",
     "capital": "Capital social",
     "reserves": "Réserves",
     "reserve_legale": "Réserve légale",
@@ -254,12 +267,18 @@ _SECTION_HEADERS = {
 
 _NUM_ONLY = re.compile(r"^[0-9 ]+$")
 
+# En-têtes de rubrique qui sont aussi des postes réels dès qu'ils portent un
+# montant (« Trésorerie » = solde bancaire, fréquent dans les liasses).
+_ACCOUNT_SECTIONS = {"tresorerie", "tresorerie actif", "tresorerie passif"}
 
-def is_section_header(label: object) -> bool:
+
+def is_section_header(label: object, valued: bool = False) -> bool:
     """True si le libellé est un en-tête de rubrique (sans valeur utile)."""
     n = norm(label)
     if not n:
         return True
+    if valued and n in _ACCOUNT_SECTIONS:
+        return False
     if n in _SECTION_HEADERS:
         return True
     if n.startswith("total ") and "actif" not in n and "passif" not in n:
@@ -279,9 +298,11 @@ def detect_section(label: object) -> str | None:
     (rubriques produits / charges / CPC indifférencié).
     """
     n = norm(label)
-    if n in {"actif", "total actif", "total bilan"}:
+    if n in {"actif", "total actif", "total bilan", "actif brut",
+             "actif du bilan", "etat actif"}:
         return "A"
-    if n in {"passif", "total passif", "total du passif"}:
+    if n in {"passif", "total passif", "total du passif", "passif du bilan",
+             "passif brut", "passif total", "etat passif"}:
         return "P"
     if n in {"compte de produit et charge", "produit et charge", "cpc",
              "compte de resultat", "resultat"}:
@@ -294,13 +315,25 @@ def detect_section(label: object) -> str | None:
     return None
 
 
-def categorize_bilan(label: object, side: str | None = None) -> str | None:
-    """Rattache un libellé de bilan à une catégorie normalisée."""
-    n = norm(label)
-    if not n:
-        return None
+def _match_bilan(n: str, side: str | None) -> str | None:
+    """Recherche par mots-clés puis par similarité, contrainte de côté.
+
+    ``side`` est le côté déclaré (rubrique ACTIF / PASSIF). Le libellé peut
+    lui-même indiquer son côté (« Trésorerie - Passif ») : on le respecte alors
+    même que la rubrique aurait été mal détectée.
+    """
+    lbl_side = "P" if "passif" in n else ("A" if "actif" in n else None)
+
+    def _ok(cat: str) -> bool:
+        cat_side = BILAN_CATS[cat][0]
+        if side and cat_side != side:
+            return False
+        if lbl_side and cat_side != lbl_side:
+            return False
+        return True
+
     for cat in BILAN_ORDER:
-        if side and BILAN_CATS[cat][0] != side:
+        if not _ok(cat):
             continue
         for kw in BILAN_CATS[cat][1]:
             if kw in n:
@@ -310,13 +343,27 @@ def categorize_bilan(label: object, side: str | None = None) -> str | None:
     # Repli : similarité avec le libellé canonique.
     best, score = None, 0.0
     for cat, canon in _LEX_NORM_BILAN.items():
-        if side and BILAN_CATS[cat][0] != side:
+        if not _ok(cat):
             continue
         r = SequenceMatcher(None, n, canon).ratio()
         if r > score:
             best, score = cat, r
-    if score >= 0.82:
-        return best
+    return best if score >= 0.82 else None
+
+
+def categorize_bilan(label: object, side: str | None = None) -> str | None:
+    """Rattache un libellé de bilan à une catégorie normalisée."""
+    n = norm(label)
+    if not n:
+        return None
+    cat = _match_bilan(n, side)
+    if cat is not None:
+        return cat
+    # Repli : si la ligne de côté (Actif/Passif) était mal déclarée, on
+    # retente sans filtre plutôt que de perdre le poste (ex. « Capital
+    # social » alors que la rubrique PASSIF n'a pas été reconnue).
+    if side:
+        return _match_bilan(n, None)
     return None
 
 
@@ -334,14 +381,7 @@ def categorize_bilan_totals(label: object) -> str | None:
     return None
 
 
-def categorize_cpc(label: object, side: str | None = None) -> str | None:
-    """Rattache un libellé de CPC à une catégorie normalisée.
-
-    ``side`` vaut « P » (rubrique produits), « C » (rubrique charges) ou None.
-    """
-    n = norm(label)
-    if not n:
-        return None
+def _match_cpc(n: str, side: str | None) -> str | None:
     produits = {"ca", "production_stockee", "autres_produits_expl",
                 "produits_fin", "produits_exc", "resultats_expl",
                 "resultat_net"}
@@ -358,8 +398,24 @@ def categorize_cpc(label: object, side: str | None = None) -> str | None:
         r = SequenceMatcher(None, n, canon).ratio()
         if r > score:
             best, score = cat, r
-    if score >= 0.82:
-        return best
+    return best if score >= 0.82 else None
+
+
+def categorize_cpc(label: object, side: str | None = None) -> str | None:
+    """Rattache un libellé de CPC à une catégorie normalisée.
+
+    ``side`` vaut « P » (rubrique produits), « C » (rubrique charges) ou None.
+    """
+    n = norm(label)
+    if not n:
+        return None
+    cat = _match_cpc(n, side)
+    if cat is not None:
+        return cat
+    # Repli : rubriques PRODUITS/CHARGES non repérées → on retente sans filtre
+    # pour ne pas perdre la ligne.
+    if side:
+        return _match_cpc(n, None)
     return None
 
 
@@ -382,11 +438,15 @@ def derive(bilan: dict[str, float], cpc: dict[str, float]) -> None:
     bilan["stocks_total"] = float(bilan.get("stocks", 0.0) or 0.0)
     bilan["tresorerie_nette"] = _sum(bilan, "tresorerie_active") - _sum(
         bilan, "tresorerie_passive")
-    bilan["capitaux_propres"] = (
+    comp_propres = (
         _sum(bilan, "capital", "reserve_legale", "reserves", "resultat",
              "subventions_invest", "amortissements_regl")
         - _sum(bilan, "pertes")
     )
+    # Si le fichier donne seulement la ligne d'agrégat « Capitaux propres »
+    # (capital + réserves + résultat en une seule ligne), on s'en sert.
+    bilan["capitaux_propres"] = comp_propres or _sum(
+        bilan, "capitaux_propres_declare")
     bilan["dettes_non_courantes"] = _sum(
         bilan, "dettes_fin_lt", "provisions_lt", "produits_a_recevoir")
     bilan["dettes_expl"] = _sum(

@@ -17,6 +17,7 @@ from core import anomalies as an
 from core import export as exp
 from core import gabarit as gab
 from core import parser
+from core import pcg
 from core import ratios as rat
 from core import synthesis as syn
 
@@ -272,8 +273,15 @@ SAMPLE_PATH = os.path.join(BASE, "sample", "exemple_bilan.xlsx")
 
 @st.cache_data(show_spinner=False)
 def run_pipeline(files: list[tuple[str, bytes]],
-                 ref_year: int | None) -> dict:
-    return parser.parse_files(list(files), ref_year)
+                 ref_year: int | None,
+                 overrides: dict | None = None) -> dict:
+    return parser.parse_files(list(files), ref_year, dict(overrides or {}))
+
+
+def _bump_remap_stamp() -> None:
+    """Change l'horodatage des widgets de recollement : les anciennes valeurs
+    devenant obsolètes, les selectboxes repartent des choix enregistrés."""
+    st.session_state["remap_stamp"] = st.session_state.get("remap_stamp", 0) + 1
 
 
 @st.cache_data(show_spinner=False)
@@ -351,8 +359,13 @@ with st.sidebar:
 # ---------------------------------------------------------------------------
 
 files: list[tuple[str, bytes]] = []
+_fixture = st.session_state.get("fixture_path")
 if st.session_state.get("use_sample"):
     files = [("exemple_bilan.xlsx", load_sample())]
+elif _fixture and os.path.exists(_fixture):
+    # Jeu d'essai externe (tests automatisés, diagnostic).
+    with open(_fixture, "rb") as _fh:
+        files = [(os.path.basename(_fixture), _fh.read())]
 elif uploads:
     files = [(f.name, f.getvalue()) for f in uploads]
 
@@ -383,7 +396,8 @@ puis **rédige une synthèse**.
 
 try:
     with st.spinner("Lecture et mappage des états financiers…"):
-        data = run_pipeline(files, int(ref_year))
+        data = run_pipeline(files, int(ref_year),
+                            st.session_state.get("remap"))
 except Exception as exc:  # noqa: BLE001 — remontée utilisateur
     st.error(f"**Lecture impossible** : {exc}")
     st.stop()
@@ -480,13 +494,71 @@ with tab_d:
         st.markdown("**Compte de produits et charges normalisé**")
         st.dataframe(data["cpc_table"], use_container_width=True, height=420)
     unmapped = data["unmapped"]
+    remap = dict(st.session_state.get("remap") or {})
+    pending = dict(remap)
     if not unmapped.empty:
-        with st.expander(f"⚠️ Lignes non reconnues ({len(unmapped)}) — "
-                         "à vérifier, elles ne sont pas comptées"):
-            st.dataframe(unmapped, use_container_width=True)
+        st.warning(
+            f"**{len(unmapped)} ligne(s) non reconnue(s)** : elles sont "
+            "exclues des agrégats. Rattachez-les manuellement ci-dessous "
+            "(capital social, capitaux propres, postes atypiques…).")
+        with st.expander(f"✍️ Rattacher {len(unmapped)} ligne(s) à une "
+                         "catégorie PCG", expanded=True):
+            opts = ["— Laisser non reconnue —",
+                    "❌ Ignorer cette ligne (hors analyse)"]
+            disp2cat: dict[str, str] = {}
+            for k in list(pcg.BILAN_ORDER) + list(pcg.CPC_ORDER):
+                grp = "Bilan" if k in pcg.BILAN_CATS else "CPC"
+                d = f"{grp} · {parser._CAT_LABELS.get(k, k)}"
+                disp2cat[d] = k
+                opts.append(d)
+
+            for idx, (_, row) in enumerate(unmapped.iterrows()):
+                lib = str(row.get("Libellé", "")).strip()
+                etat = str(row.get("État", ""))
+                nkey = pcg.norm(lib)
+                cur = pending.get(nkey)
+                if cur == "__ignorer__":
+                    cur_disp = opts[1]
+                elif cur:
+                    grp = "Bilan" if cur in pcg.BILAN_CATS else "CPC"
+                    cur_disp = (f"{grp} · "
+                                f"{parser._CAT_LABELS.get(cur, cur)}")
+                else:
+                    cur_disp = opts[0]
+                if cur_disp not in opts:
+                    cur_disp = opts[0]
+                cl, cs = st.columns([3, 2])
+                cl.markdown(f"<span class='chip'>{etat}</span> {lib}",
+                            unsafe_allow_html=True)
+                choice = cs.selectbox(
+                    "Rattacher", opts, index=opts.index(cur_disp),
+                    key=f"remap_w{st.session_state.get('remap_stamp', 0)}_{idx}",
+                    label_visibility="collapsed")
+                if choice == opts[0]:
+                    pending.pop(nkey, None)
+                elif choice == opts[1]:
+                    pending[nkey] = "__ignorer__"
+                else:
+                    pending[nkey] = disp2cat[choice]
+
+            a1, a2 = st.columns(2)
+            if a1.button("✅ Appliquer et recalculer", key="btn_remap_apply"):
+                st.session_state["remap"] = pending
+                _bump_remap_stamp()
+                st.rerun()
+            if a2.button("🗑️ Réinitialiser les recollements",
+                         key="btn_remap_reset"):
+                st.session_state["remap"] = {}
+                _bump_remap_stamp()
+                st.rerun()
+
+        st.dataframe(unmapped, use_container_width=True)
     else:
         st.success("Toutes les lignes ont été rattachées à une catégorie "
                    "du plan comptable.")
+    if remap:
+        st.caption(f"📌 {len(remap)} recollement(s) manuel(aux) appliqué(s) "
+                   "à cette analyse.")
 
 # --- Anomalies -------------------------------------------------------------
 with tab_a:
