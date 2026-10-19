@@ -309,10 +309,11 @@ with st.sidebar:
 
     uploads = st.file_uploader(
         "Déposez vos états financiers",
-        type=["xlsx", "xlsm", "xls", "csv"],
+        type=["xlsx", "xlsm", "xls", "csv", "pdf"],
         accept_multiple_files=True,
-        help="Un classeur Excel avec onglets « Bilan » et « CPC », "
-             "ou deux CSV (bilan.csv / cpc.csv).")
+        help="Un classeur Excel avec onglets « Bilan » et « CPC », deux CSV "
+             "(bilan.csv / cpc.csv), ou un PDF **numérique** (et non scanné) "
+             "contenant les états financiers.")
 
     c1, c2 = st.columns(2)
     with c1:
@@ -384,6 +385,9 @@ puis **rédige une synthèse**.
 2. Remplissez-le avec vos états financiers (montants en euros).
 3. **Déposez le fichier** dans la zone ci-dessus, ou cliquez sur **🧪 Exemple**
    pour tester immédiatement avec un jeu d'essai sur 3 exercices.
+
+Formats acceptés : **Excel** (`.xlsx`, `.xlsm`, `.xls`), **CSV** et **PDF**
+(numérique : le texte doit être sélectionnable, pas un scan).
 
 | Onglet | Contenu |
 |---|---|
@@ -475,6 +479,8 @@ with tab_r:
 
 # --- Données ---------------------------------------------------------------
 with tab_d:
+    for _avert in (data.get("avertissements") or []):
+        st.warning(f"⚠️ Fichier ignoré — {_avert}")
     diag = data.get("diagnostic") or []
     if diag:
         with st.expander("🔎 Diagnostic de lecture (feuilles, colonnes, "

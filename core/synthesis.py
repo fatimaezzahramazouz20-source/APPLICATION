@@ -70,7 +70,7 @@ def synthese_par_regles(data: dict, computed: dict,
     L.append("")
     L.append(f"**Période analysée :** {periode}  ")
     L.append(f"**Exercice de référence :** {last}  ")
-    L.append(f"**Source :** bilan et compte de produits et charges (PCG)")
+    L.append("**Source :** bilan et compte de produits et charges (PCG)")
     L.append("")
 
     # --- 1. Activité et rentabilité --------------------------------------
@@ -218,10 +218,6 @@ def _recommandations(data: dict, computed: dict,
             seen.add(key)
             recs.append(text)
 
-    years = data["years"]
-    last = years[-1]
-    b = lambda k: float(data["bilan"].get(last, {}).get(k, 0.0) or 0.0)
-    c = lambda k: float(data["cpc"].get(last, {}).get(k, 0.0) or 0.0)
     tags = {t for a in anomalies for t in a.tags}
 
     if "liquidité" in tags or "trésorerie" in tags:

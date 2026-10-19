@@ -11,6 +11,7 @@ from typing import Any
 import pandas as pd
 
 from . import pcg
+from . import pdf as pdf_reader
 
 _YEAR_RE = re.compile(r"\b(19|20)\d{2}\b")
 _N_RE = re.compile(r"\bn\s*-?\s*(\d)\b")
@@ -34,8 +35,14 @@ _CPC_MARKERS = [
 # Lecture brute
 # ---------------------------------------------------------------------------
 
-def read_files(files: list[tuple[str, bytes]]) -> list[tuple[str, pd.DataFrame]]:
-    """Lit chaque fichier et renvoie une liste (nom, DataFrame brut)."""
+def read_files(files: list[tuple[str, bytes]],
+               warnings: list[str] | None = None
+               ) -> list[tuple[str, pd.DataFrame]]:
+    """Lit chaque fichier et renvoie une liste (nom, DataFrame brut).
+
+    ``warnings`` : si une liste est fournie, les fichiers illisibles y sont
+    signalés au lieu de faire échouer l'ensemble de l'analyse.
+    """
     out: list[tuple[str, pd.DataFrame]] = []
     for name, content in files:
         lower = name.lower()
@@ -49,6 +56,13 @@ def read_files(files: list[tuple[str, bytes]]) -> list[tuple[str, pd.DataFrame]]
                                    engine="xlrd")
             for sheet_name, df in sheets.items():
                 out.append((f"{name} — {sheet_name}", df))
+        elif lower.endswith(".pdf"):
+            try:
+                out.extend(pdf_reader.pdf_to_sheets(name, content))
+            except pdf_reader.PdfNoTextError as exc:
+                if warnings is None:
+                    raise ValueError(str(exc)) from None
+                warnings.append(str(exc))
         else:
             df = _read_csv(buf)
             out.append((name, df))
@@ -212,9 +226,11 @@ def _detect_etat_column(df: pd.DataFrame) -> int | None:
 
 class SheetData:
     def __init__(self, name: str, df: pd.DataFrame,
-                 overrides: dict[str, str] | None = None):
+                 overrides: dict[str, str] | None = None,
+                 ref_year: int | None = None):
         self.name = name
         self.overrides = overrides
+        self.ref_year = ref_year
         self.kind = _classify_sheet(name, df)
         self.rows: list[dict] = []          # libellé + valeurs par exercice
         self.unmapped: list[dict] = []
@@ -376,8 +392,7 @@ class SheetData:
         if cat is None:
             self.unmapped.append(entry)
 
-    @staticmethod
-    def _infer_ref_year(col_year: dict, df: pd.DataFrame,
+    def _infer_ref_year(self, col_year: dict, df: pd.DataFrame,
                         h: int) -> int | None:
         """Année de référence si les colonnes sont nommées « N », « N-1 »…"""
         if not any(kind == "N" for kind, _ in col_year.values()):
@@ -385,6 +400,8 @@ class SheetData:
         found = [v for kind, v in col_year.values() if kind == "Y"]
         if found:
             return max(found)
+        if getattr(self, "ref_year", None):
+            return int(self.ref_year)
         return pd.Timestamp.today().year - 1
 
     # -- agrégation ------------------------------------------------------
@@ -423,11 +440,14 @@ def parse_files(files: list[tuple[str, bytes]],
     ``overrides`` : recollements manuels {libellé normalisé → catégorie} posés
     par l'utilisateur dans l'interface (« __ignorer__ » pour exclure une ligne).
     """
-    sheets_raw = read_files(files)
-    sheets = [SheetData(name, df, overrides) for name, df in sheets_raw
-              if not df.empty]
+    warnings: list[str] = []
+    sheets_raw = read_files(files, warnings)
+    sheets = [SheetData(name, df, overrides, ref_year)
+              for name, df in sheets_raw if not df.empty]
     if not sheets:
-        raise ValueError("Aucune donnée exploitable dans le fichier fourni.")
+        detail = (" " + " ".join(warnings)) if warnings else ""
+        raise ValueError("Aucune donnée exploitable dans le fichier fourni."
+                         + detail)
 
     years: set[int] = set()
     for s in sheets:
@@ -494,6 +514,7 @@ def parse_files(files: list[tuple[str, bytes]],
         "unmapped": pd.DataFrame(unmapped_rows),
         "sheets": [{"nom": s.name, "type": s.kind} for s in sheets],
         "diagnostic": [s.info for s in sheets],
+        "avertissements": list(warnings),
     }
 
 

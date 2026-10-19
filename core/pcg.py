@@ -312,6 +312,18 @@ def detect_section(label: object) -> str | None:
         return "CP"
     if n in {"charge", "charge d exploitation"}:
         return "CH"
+    # Libellés composés fréquents dans les PDF : « BILAN - ACTIF »,
+    # « COMPTE DE RÉSULTAT (suite) », « ACTIF NET »… On ne le fait que sur des
+    # libellés courts, pour ne pas confondre avec un poste détaillé.
+    toks = n.split()
+    if 2 <= len(toks) <= 4 and toks[0] in {"actif", "passif", "bilan",
+                                           "compte", "total"}:
+        if "passif" in toks:
+            return "P"
+        if "actif" in toks or "bilan" in toks:
+            return "A"
+        if "compte" in toks and ("resultat" in toks or "produit" in toks):
+            return "C"
     return None
 
 
