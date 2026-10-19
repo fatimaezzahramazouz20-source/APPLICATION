@@ -22,6 +22,115 @@ from core import synthesis as syn
 st.set_page_config(page_title="Analyse des états financiers", page_icon="📊",
                    layout="wide")
 
+# ---------------------------------------------------------------------------
+# Thème « Finance » : dégradé bleu nuit, accents or, cartes KPI
+# ---------------------------------------------------------------------------
+
+st.markdown("""
+<style>
+/* --- Fond principal : dégradé bleu nuit « marchés financiers » --- */
+.stApp {
+    background: linear-gradient(160deg, #0B1F33 0%, #0E2740 45%, #123659 100%);
+    background-attachment: fixed;
+}
+
+/* --- Grille discrète façon écran de trading --- */
+[data-testid="stAppViewContainer"]::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    background-image:
+        linear-gradient(rgba(212,175,55,0.05) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(212,175,55,0.05) 1px, transparent 1px);
+    background-size: 48px 48px;
+    pointer-events: none;
+    z-index: 0;
+}
+
+/* --- Titres : couleur or --- */
+h1, h2, h3 {
+    color: #D4AF37 !important;
+    font-family: 'Segoe UI', sans-serif;
+}
+
+h1 { letter-spacing: 0.5px; }
+
+/* --- Texte courant --- */
+[data-testid="stMarkdownContainer"], p, li, label {
+    color: #ECF2F8;
+}
+
+/* --- Barre latérale : bleu plus foncé + filet or --- */
+[data-testid="stSidebar"] {
+    background: linear-gradient(180deg, #0A1A2B 0%, #102A44 100%);
+    border-right: 2px solid rgba(212,175,55,0.35);
+}
+[data-testid="stSidebar"] h1,
+[data-testid="stSidebar"] h2,
+[data-testid="stSidebar"] h3 {
+    color: #D4AF37 !important;
+}
+
+/* --- Cartes / encadrés style rapport financier --- */
+[data-testid="stExpander"],
+[data-testid="stVerticalBlock"] > div:has(> div > [data-testid="stMarkdownContainer"] > p) {
+    background: rgba(19, 46, 74, 0.55);
+    border: 1px solid rgba(212,175,55,0.25);
+    border-radius: 10px;
+}
+
+/* --- KPI header : cartes dorées --- */
+[data-testid="stMetric"] {
+    background: linear-gradient(145deg, rgba(19,46,74,0.9), rgba(11,31,51,0.9));
+    border: 1px solid rgba(212,175,55,0.4);
+    border-radius: 12px;
+    padding: 14px 18px;
+    box-shadow: 0 4px 14px rgba(0,0,0,0.35);
+}
+[data-testid="stMetricValue"] { color: #F1C40F !important; }
+[data-testid="stMetricLabel"] { color: #A9C4DC !important; }
+[data-testid="stMetricDelta"] { color: #7DCEA0 !important; }
+
+/* --- Boutons : style doré --- */
+.stButton > button {
+    background: linear-gradient(145deg, #D4AF37, #B8962E);
+    color: #0B1F33;
+    font-weight: 600;
+    border: none;
+    border-radius: 8px;
+    transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+.stButton > button:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 6px 16px rgba(212,175,55,0.35);
+    color: #000;
+}
+
+/* --- Tableaux : lignes alternées --- */
+[data-testid="stDataFrame"] {
+    border: 1px solid rgba(212,175,55,0.3);
+    border-radius: 8px;
+}
+
+/* --- Onglets : soulignés en or --- */
+[data-baseweb="tab-list"] { gap: 8px; }
+[data-baseweb="tab"] { color: #A9C4DC; }
+[data-baseweb="tab"][aria-selected="true"] {
+    color: #F1C40F;
+    border-bottom-color: #D4AF37;
+}
+
+/* --- Séparateurs --- */
+hr { border-color: rgba(212,175,55,0.3) !important; }
+
+/* --- Blocs d'alerte / anomalies --- */
+[data-testid="stAlert"] {
+    border-radius: 10px;
+    border-left: 4px solid #D4AF37;
+}
+</style>
+""", unsafe_allow_html=True)
+
 st.markdown("""
 # 📈 Analyse des états financiers
 

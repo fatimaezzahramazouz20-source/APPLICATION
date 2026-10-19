@@ -1,0 +1,18 @@
+# Thème « Finance » — palette bleu nuit / or
+[theme]
+base = "dark"
+
+primaryColor = "#D4AF37"          # or
+backgroundColor = "#0B1F33"       # bleu nuit profond
+secondaryBackgroundColor = "#132E4A"  # bleu foncé (encadrés, sidebar)
+textColor = "#ECF2F8"             # bleu-gris clair
+linkColor = "#5DADE2"
+
+[theme.font]
+family = "Segoe UI, sans-serif"
+
+[server]
+headless = true
+
+[browser]
+gatherUsageStats = false
