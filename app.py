@@ -553,7 +553,7 @@ with st.expander("📊 Dashboard entreprise", expanded=False):
         st.metric("Capitaux propres", f"{b(last, 'capitaux_propres'):,.0f} €")
     with c4:
         endt = rv["endettement"][last]
-        st.metric("Taux endettement", fmt(endt, "x", 2), delta="🟡 si > 1,5")
+        st.metric("Taux endettement", rat.fmt(endt, "x", 2), delta="🟡 si > 1,5")
     st.markdown("---")
     st.markdown("**Évolution CA & Résultat Net**")
     if prev is not None:
