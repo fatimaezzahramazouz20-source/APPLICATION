@@ -6,6 +6,7 @@ Lancement :  streamlit run app.py
 
 from __future__ import annotations
 
+import base64
 import datetime as _dt
 import os
 
@@ -216,6 +217,32 @@ hr { border-color: rgba(127,147,168,0.25) !important; }
 [data-testid="stDownloadButton"] { font-size: 0.76rem !important; }
 </style>
 """, unsafe_allow_html=True)
+
+# --- Fond photo « salle des marchés » (voile sombre pour la lisibilité) ---
+_BG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                        "assets", "background.jpg")
+try:
+    with open(_BG_PATH, "rb") as _fh:
+        _BG_B64 = base64.b64encode(_fh.read()).decode()
+    st.markdown(f"""
+<style>
+.stApp, [data-testid="stAppViewContainer"] {{
+    background:
+        linear-gradient(rgba(6,10,16,0.82), rgba(6,10,16,0.90)),
+        url("data:image/jpeg;base64,{_BG_B64}")
+        center / cover no-repeat fixed !important;
+}}
+/* photo aussi dans la barre latérale (voile plus dense) */
+[data-testid="stSidebar"] {{
+    background:
+        linear-gradient(rgba(5,8,13,0.92), rgba(5,8,13,0.96)),
+        url("data:image/jpeg;base64,{_BG_B64}")
+        center / cover no-repeat fixed !important;
+}}
+</style>
+""", unsafe_allow_html=True)
+except OSError:
+    pass  # image absente → le fond dégradé du thème s'applique
 
 st.markdown("""
 # 📈 Analyse des états financiers

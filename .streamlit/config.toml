@@ -7,9 +7,7 @@ backgroundColor = "#070D14"       # noir-bleu (salle des marchés)
 secondaryBackgroundColor = "#0D1622"  # panneaux / encadrés
 textColor = "#C7D3DF"             # gris-bleu clair
 linkColor = "#C9A227"
-
-[theme.font]
-family = "Source Sans Pro, sans-serif"
+font = "sans serif"
 
 [server]
 headless = true
